@@ -1,0 +1,14 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: ingressroutetcpvault
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: HostSNI(`vault.example.com`)
+      services:
+        - name: vault
+          port: 8200
+  tls:
+    passthrough: true

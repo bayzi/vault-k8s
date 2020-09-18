@@ -1,0 +1,159 @@
+---
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: vault-pdb
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: vault
+
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: vault
+  name: vault
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: vault
+  serviceName: vault
+  template:
+    metadata:
+      labels:
+        app: vault
+    spec:
+      serviceAccountName: vault-user
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: vault
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      containers:
+      - image: vault:1.3.1
+        name: vault
+        command:
+        - vault
+        - server
+        - -config
+        - /vault/config/config.hcl
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.podIP
+        - name: VAULT_CLUSTER_ADDR
+          value: https://$(POD_IP):8201
+        - name: VAULT_REDIRECT_ADDR
+          value: https://vault.default.svc.cluster.local:8200
+        - name: VAULT_LOG_LEVEL
+          value: INFO
+        - name: VAULT_CACERT
+          value: "/etc/tls/consul/ca.pem"
+        lifecycle:
+          preStop:
+            exec:
+              command: [
+                "sh", "-c", "sleep 6",
+              ]
+        ports:
+        - containerPort: 8200
+          name: api
+          protocol: TCP
+        - containerPort: 8201
+          name: cluster-address
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /v1/sys/health?sealedcode=204&standbycode=204&uninitcode=204&
+            port: 8200
+            scheme: HTTPS
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        # resources:
+        #   limits:
+        #     memory: "1.5Gi"
+        #   requests:
+        #     memory: "1.5Gi"   
+        volumeMounts:
+        - mountPath: /vault/config/
+          name: vault-config
+        - mountPath: /etc/tls/consul
+          name: consul-certs
+      - args:
+        - consul
+        - agent
+        - -advertise=$(POD_IP)
+        - -config-file=/consul/config/local.json
+        - -retry-join=consul-0.consul.default.svc.cluster.local
+        - -retry-join=consul-1.consul.default.svc.cluster.local
+        - -retry-join=consul-2.consul.default.svc.cluster.local
+        - -encrypt=$(GOSSIP_ENCRYPTION_KEY)
+        - -data-dir=/consul/data
+        - -disable-host-node-id
+        env:
+        - name: CONSUL_HTTP_SSL
+          value: "true"
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.podIP
+        - name: GOSSIP_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              key: key
+              name: consul-gossip-key
+        - name: CONSUL_LOCAL_CONFIG
+          value: '{
+            "server": false,
+            "datacenter": "dc1",
+            "domain": "cluster.local",
+            "client_addr": "127.0.0.1",
+            "ca_file": "/etc/tls/consul/ca.pem",
+            "cert_file": "/etc/tls/consul/consul.pem",
+            "key_file": "/etc/tls/consul/consul-key.pem",
+            "log_level": "INFO",
+            "verify_incoming": true,
+            "verify_outgoing": true,
+            "verify_server_hostname": true,
+            "ports": {
+              "https": 8443
+            }
+          }'
+        image: consul:1.7.0
+        imagePullPolicy: IfNotPresent
+        name: consul
+        # resources:
+        #   limits:
+        #     memory: "300Mi"
+        #   requests:
+        #     memory: "300Mi"
+        volumeMounts:
+        - mountPath: /consul/data
+          name: consul-data
+        - mountPath: /etc/tls/consul
+          name: consul-certs
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: vault-config
+        name: vault-config
+      - name: consul-certs
+        secret:
+          defaultMode: 420
+          secretName: consul-certs
+      - emptyDir: {}
+        name: consul-data

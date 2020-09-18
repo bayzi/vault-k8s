@@ -1,0 +1,6 @@
+deployment:
+  enabled: true
+  replicas: 2
+service:
+  enabled: true
+  type: NodePort

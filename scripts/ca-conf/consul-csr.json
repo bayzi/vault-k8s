@@ -1,0 +1,22 @@
+{
+  "CN": "server.dc1.cluster.local",
+  "hosts": [
+    "server.dc1.cluster.local",
+    "127.0.0.1",
+    "consul.default.svc.cluster.local",
+    "vault.default.svc.cluster.local"
+  ],
+  "key": {
+    "algo": "rsa",
+    "size": 2048
+  },
+  "names": [
+    {
+      "C": "Country",
+      "L": "City/Location",
+      "O": "Organization",
+      "OU": "Organizational Unit",
+      "ST": "State/Province"
+    }
+  ]
+}
